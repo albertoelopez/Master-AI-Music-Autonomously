@@ -1,0 +1,27 @@
+# Suno AI Agent Configuration
+# Configure the LLM provider, browser settings, and autonomy levels.
+
+llm:
+  provider: deepseek          # deepseek | ollama | openai | anthropic
+  model: deepseek-chat        # Model name (provider-specific)
+  temperature: 0.1            # Low temperature for deterministic actions
+  api_key_env: DEEPSEEK_API_KEY  # Env var name holding the API key
+
+browser:
+  cdp_port: 9222              # Chrome DevTools Protocol port
+  headless: false             # Run browser headed (visible)
+  user_data_dir: browser_data/
+  viewport:
+    width: 1280
+    height: 900
+
+autonomy:
+  default_level: supervised   # autonomous | supervised | manual
+  page_overrides:
+    studio: autonomous        # EQ/mixing is safe to automate fully
+    create: supervised        # Confirm lyrics/styles before creating
+    export: supervised        # Confirm before exporting
+
+ui:
+  type: gradio                # gradio | cli
+  port: 7860

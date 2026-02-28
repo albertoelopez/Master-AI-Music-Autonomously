@@ -1,0 +1,382 @@
+{
+  "_description": "Complete map of Suno Studio UI controls. Derived from DOM exploration, documentation, and API interception.",
+  "_sources": [
+    "https://help.suno.com/en/articles/8935873 (EQ)",
+    "https://help.suno.com/en/articles/8082241 (Mixing)",
+    "https://help.suno.com/en/articles/8967489 (Studio v1.1)",
+    "DOM exploration sessions Feb 2026"
+  ],
+
+  "api": {
+    "base_url": "https://studio-api.prod.suno.com",
+    "auth_url": "https://auth.suno.com",
+    "endpoints": {
+      "session": "GET /api/session/",
+      "billing_info": "GET /api/billing/info/",
+      "user_config": "POST /api/user/user_config/",
+      "feed": "POST /api/feed/v3",
+      "feed_by_ids": "GET /api/feed/v2?ids={clip_id}",
+      "prompts_lyrics": "GET /api/prompts/?page=0&per_page=100&filter_prompt_type=lyrics",
+      "prompts_tags": "GET /api/prompts/?page=0&per_page=100&filter_prompt_type=tags",
+      "tags_recommend": "POST /api/tags/recommend",
+      "projects": "GET /api/project/me?page=1&sort=max_created_at_last_updated_clip&show_trashed=false&exclude_shared=false",
+      "playlists": "GET /api/playlist/me?page=1&show_trashed=false&show_sharelist=false",
+      "studio_project": "GET /api/studio/project/{project_id}",
+      "clip_opus": "GET /api/gen/{clip_id}/opus_file/",
+      "clip_warmup": "POST /api/gen/{clip_id}/warmup-audio-features",
+      "clip_downbeats": "POST /api/gen/{clip_id}/downbeats_streaming/v2",
+      "clips_by_ids": "GET /api/clips/get_songs_by_ids",
+      "profile": "GET /api/profiles/{username}/info",
+      "pinned_clips": "GET /api/profiles/pinned-clips",
+      "notifications": "GET /api/notification/v2",
+      "badge_count": "GET /api/notification/v2/badge-count",
+      "contests": "GET /api/contests/",
+      "challenge_progress": "GET /api/challenge/progress",
+      "statsig": "POST /api/statsig/experiment/",
+      "video_gen_pending": "POST /api/video_gen/pending_batches",
+      "playbar_state": "GET /api/music_player/playbar_state"
+    }
+  },
+
+  "pages": {
+    "home": {"url": "/", "description": "Feed of trending/featured songs"},
+    "create": {"url": "/create", "description": "Song generation"},
+    "studio": {"url": "/studio", "description": "DAW - timeline, mixing, export"},
+    "library": {"url": "/me", "description": "Your songs, playlists, workspaces"},
+    "search": {"url": "/search", "description": "Search songs/creators"},
+    "hooks": {"url": "/hooks", "description": "Short video clips"},
+    "labs": {"url": "/labs", "description": "Genre Wheel, Suno Radio"},
+    "song_detail": {"url": "/song/{uuid}", "description": "Individual song page"}
+  },
+
+  "create": {
+    "modes": {
+      "simple": {
+        "tab_text": "Simple",
+        "controls": {
+          "description": {"type": "textarea", "placeholder": "Song Description"},
+          "instrumental_toggle": {"type": "toggle", "text": "Instrumental"},
+          "inspiration_tags": {"type": "tag_chips", "description": "Style suggestion chips"},
+          "create_button": {"type": "button", "text": "Create"}
+        }
+      },
+      "custom": {
+        "tab_text": "Custom",
+        "controls": {
+          "audio_button": {"type": "button", "text": "+ Audio"},
+          "persona_button": {"type": "button", "text": "+ Persona"},
+          "inspo_button": {"type": "button", "text": "+ Inspo"},
+          "lyrics": {"type": "textarea", "placeholder": "Write some lyrics or a prompt"},
+          "styles": {"type": "input", "description": "Style text with tag chips"},
+          "advanced_options": {
+            "type": "expandable",
+            "text": "Advanced Options",
+            "children": {
+              "song_title": {"type": "input", "placeholder": "Song Title (Optional)"},
+              "weirdness": {"type": "slider", "aria_label": "Weirdness", "min": 0, "max": 100, "default": 50},
+              "style_influence": {"type": "slider", "aria_label": "Style Influence", "min": 0, "max": 100, "default": 50}
+            }
+          },
+          "create_button": {"type": "button", "text": "Create"}
+        }
+      },
+      "sounds": {
+        "tab_text": "Sounds",
+        "description": "Create short samples - effects, loops, one-shots",
+        "controls": {
+          "sound_description": {"type": "textarea", "description": "Describe the sound you want"},
+          "type_toggle": {"options": ["One-Shot", "Loop"]},
+          "bpm": {"type": "toggle", "options": ["Auto", "Manual"], "input_type": "number"},
+          "key": {"type": "select", "options": ["Any", "C", "C#", "D", "etc"]},
+          "create_button": {"type": "button", "text": "Create"}
+        }
+      }
+    },
+    "version_selector": {"type": "dropdown", "text": "v5", "description": "AI model version"}
+  },
+
+  "studio": {
+    "top_bar": {
+      "learn_button": {"text": "Learn", "description": "Opens feature tutorial dialog"},
+      "layout_button": {"text": "Layout", "description": "Toggles split view with Create panel"},
+      "credits": {"aria_label": "Credits remaining: {count}", "description": "Shows remaining credits"},
+      "undo_redo": {"description": "Undo/Redo buttons"},
+      "export_dropdown": {
+        "text": "Export",
+        "options": [
+          {"text": "Full Song", "description": "Export entire project as WAV"},
+          {"text": "Selected Time Range", "description": "Export highlighted section as WAV"},
+          {"text": "Multitrack", "description": "Export each track separately as WAV"}
+        ]
+      }
+    },
+
+    "left_sidebar": {
+      "description": "Track thumbnails from workspace, draggable to timeline",
+      "interaction": "Click thumbnail, then drag to timeline area"
+    },
+
+    "track_controls": {
+      "description": "Per-track controls on the left side of timeline",
+      "track_number": {"type": "button", "text": "1/2/3", "description": "Track number, clickable to select track"},
+      "track_name": {"type": "text", "editable": true, "description": "Track name with pencil edit icon"},
+      "solo_button": {"type": "button", "text": "S", "description": "Solo - isolate this track"},
+      "mute_button": {"type": "button", "description": "Speaker icon - mute/unmute track"},
+      "volume_fader": {
+        "type": "slider",
+        "class": "fader-knob",
+        "description": "Horizontal volume fader, dB scale",
+        "interaction": "Drag left/right to adjust"
+      },
+      "pan_slider": {
+        "type": "slider",
+        "description": "Pan L-R, below volume fader. Double-click to center",
+        "interaction": "Drag left for L channel, right for R channel"
+      },
+      "input_selector": {
+        "type": "dropdown",
+        "text": "No Input",
+        "description": "Audio input for recording"
+      },
+      "add_track": {"type": "button", "text": "+ Add Track"}
+    },
+
+    "timeline": {
+      "description": "Multi-track arrangement area with waveform display",
+      "interactions": {
+        "click_clip": "Select clip, shows Clip tab in right panel",
+        "right_click_clip": {
+          "description": "Context menu on clip",
+          "options": [
+            "Remix Selection",
+            "Download .WAV",
+            "Get MIDI (10 credits)",
+            "Remove FX",
+            "Copy",
+            "Duplicate",
+            "Delete",
+            "Heal Edits",
+            "Reload Lyrics"
+          ]
+        },
+        "drag_clip": "Move clip on timeline",
+        "drag_from_sidebar": "Import clip from workspace to timeline, triggers tempo dialog"
+      },
+      "tempo_dialog": {
+        "description": "Appears when dragging first clip to timeline",
+        "options": ["Average tempo", "Choose tempo", "Follow tempo changes"],
+        "confirm_button": "Confirm"
+      }
+    },
+
+    "right_panel": {
+      "tabs": ["Clip", "Track"],
+
+      "clip_tab": {
+        "description": "Shows when a clip is selected on timeline",
+        "controls": {
+          "song_artwork": {"type": "image", "description": "Clip cover art thumbnail"},
+          "song_title": {"type": "text", "description": "Song name"},
+          "remix_button": {"type": "button", "text": "Remix", "description": "Opens remix options"},
+          "speaker_button": {"aria_label": "speaker/audio", "description": "Audio preview"},
+          "like_dislike": {"description": "Thumbs up/down buttons"},
+          "more_options": {"aria_label": "More options", "text": "..."},
+          "clip_settings": {
+            "type": "expandable",
+            "text": "Clip Settings",
+            "toggle": {"type": "switch", "description": "Enable/disable clip settings"},
+            "children": {
+              "tempo": {
+                "type": "dropdown",
+                "text": "On Beat",
+                "description": "Tempo alignment mode"
+              },
+              "transpose": {
+                "type": "number_stepper",
+                "buttons": ["-", "0", "+"],
+                "description": "Semitone transpose"
+              },
+              "speed": {
+                "type": "button_group",
+                "buttons": ["½", "reset", "×2"],
+                "description": "Playback speed"
+              },
+              "clip_volume": {
+                "type": "slider",
+                "unit": "dB",
+                "default": "0.0 dB",
+                "description": "Individual clip volume"
+              }
+            }
+          },
+          "extract_stems": {
+            "type": "button",
+            "text": "Extract Stems",
+            "options": [
+              {"text": "All Detected Stems", "description": "Up to 12 tracks"},
+              {"text": "Vocals + Instrumental", "description": "2-track split"}
+            ]
+          },
+          "genre_tag": {"type": "text", "description": "Genre label (e.g. 'soul')"},
+          "show_more": {
+            "type": "button",
+            "text": "Show More",
+            "reveals": ["Full styles list", "Full lyrics", "Copy buttons"]
+          },
+          "copy_styles": {"aria_label": "Copy styles to clipboard"},
+          "copy_lyrics": {"aria_label": "Copy lyrics to clipboard"}
+        }
+      },
+
+      "track_tab": {
+        "description": "Shows when Track tab is selected. Contains EQ and mixing controls.",
+        "how_to_access": "Click a clip on timeline, then click 'Track' tab button at (1117, 68)",
+        "verified": "2026-02-27 via map_eq_controls.py with screenshots",
+        "controls": {
+          "clip_tab_button": {"type": "button", "text": "Clip", "pos": [1059, 68], "size": [58, 34], "center": [1088, 85]},
+          "track_tab_button": {"type": "button", "text": "Track", "pos": [1117, 68], "size": [67, 34], "center": [1150, 85]},
+          "song_title": {"type": "text", "description": "Song name with edit icon, clickable"},
+          "delete_button": {"type": "button", "text": "Delete", "pos": [1031, 159], "size": [98, 36]},
+          "duplicate_button": {"type": "button", "text": "Duplicate", "pos": [1137, 159], "size": [118, 36]},
+          "follow_track_tempo": {"type": "button", "text": "Follow Track Tempo", "pos": [987, 207], "size": [268, 40]},
+          "eq": {
+            "type": "parametric_eq",
+            "description": "6-band parametric equalizer with visual frequency graph and spectrum analyzer",
+            "label": {"type": "button", "text": "EQ", "pos": [995, 267], "size": [63, 32]},
+            "toggle": {
+              "type": "switch",
+              "description": "Blue toggle to enable/disable EQ",
+              "pos": [1195, 271],
+              "size": [44, 24],
+              "class": "h-6 w-11 cursor-pointer rounded"
+            },
+            "presets": {
+              "type": "dropdown_with_arrows",
+              "prev_arrow": {"pos": [1003, 341], "size": [36, 36]},
+              "preset_button": {"text": "Flat (Reset)", "pos": [1047, 339], "size": [148, 40]},
+              "next_arrow": {"pos": [1203, 341], "size": [36, 36]},
+              "options": [
+                "Flat (Reset)", "Hi-Pass", "Vocal", "Warm", "Bright", "Presence",
+                "Bass Boost", "Air", "Clarity", "Fullness", "Lo-Fi", "Modern"
+              ],
+              "note": "Changes to [Custom] when any band is manually adjusted"
+            },
+            "eq_canvas": {
+              "type": "canvas",
+              "description": "Combined EQ curve display + spectrum analyzer. Draggable control points for each band.",
+              "class": "css-122y91a e1ris4ze1",
+              "pos": [995, 387],
+              "size": [252, 120]
+            },
+            "bands": {
+              "count": 6,
+              "buttons": {
+                "1": {"pos": [1051, 551], "size": [28, 28]},
+                "2": {"pos": [1083, 551], "size": [28, 28]},
+                "3": {"pos": [1115, 551], "size": [28, 28]},
+                "4": {"pos": [1147, 551], "size": [28, 28]},
+                "5": {"pos": [1179, 551], "size": [28, 28]},
+                "6": {"pos": [1211, 551], "size": [28, 28]}
+              },
+              "filter_type_buttons": {
+                "description": "6 SVG icon buttons to select filter type for selected band",
+                "y": 596,
+                "positions": [1003, 1043, 1083, 1123, 1163, 1203],
+                "size": [36, 24],
+                "types_in_order": ["Bell/Peak", "High-pass", "Low-pass", "High-shelf", "Low-shelf", "Notch"]
+              },
+              "per_band": {
+                "frequency": {
+                  "knob": {"type": "svg_dial", "pos": [1005, 628], "size": [64, 64]},
+                  "input": {"type": "input", "class": "css-rgc5l5 et39r9t2", "pos": [1007, 681], "size": [60, 22], "unit": "Hz", "label": "Freq"}
+                },
+                "gain": {
+                  "knob": {"type": "svg_dial", "pos": [1089, 628], "size": [64, 64]},
+                  "input": {"type": "input", "class": "css-1x8pjye et39r9t2", "pos": [1091, 681], "size": [60, 22], "unit": "dB", "label": "Gain"}
+                },
+                "resonance": {
+                  "knob": {"type": "svg_dial", "pos": [1173, 628], "size": [64, 64]},
+                  "input": {"type": "input", "class": "css-rgc5l5 et39r9t2", "pos": [1175, 681], "size": [60, 22], "unit": "", "label": "Res/Q"}
+                }
+              },
+              "default_values": {
+                "band_1": {"freq": "60Hz", "gain": "0.0dB", "q": "0.71", "filter": "High-pass"},
+                "band_2": {"freq": "200Hz", "gain": "0.0dB", "q": "0.71"},
+                "band_3": {"freq": "450Hz", "gain": "0.0dB", "q": "0.71"},
+                "band_4": {"freq": "2kHz", "gain": "0.0dB", "q": "0.71"},
+                "band_5": {"freq": "6kHz", "gain": "0.0dB", "q": "0.71"},
+                "band_6": {"freq": "8.8kHz", "gain": "0.0dB", "q": "0.71", "filter": "Low-pass"}
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "bottom_bar": {
+      "create_tabs": {
+        "tabs": ["Song", "Styles", "Lyrics"],
+        "description": "Quick-create from within Studio"
+      },
+      "action_buttons": ["Cover", "Replace"],
+      "transport": {
+        "bpm_display": {"description": "Shows project BPM (e.g. 68 BPM)"},
+        "play_pause": {"description": "Play/Pause button"},
+        "skip_forward_back": {"description": "Skip buttons"},
+        "loop": {"description": "Loop toggle"},
+        "position_display": {"description": "Current playback position and total time"},
+        "zoom_controls": {"description": "+/- zoom buttons for timeline"}
+      }
+    }
+  },
+
+  "library": {
+    "tabs": [
+      "Songs", "Playlists", "Workspaces", "Studio Projects",
+      "Personas", "Cover Art", "Hooks", "Liked Hooks", "History"
+    ],
+    "songs_tab": {
+      "filters": ["Filters", "Newest", "Liked", "Public", "Uploads"],
+      "search": {"type": "input", "placeholder": "Search"},
+      "per_song_actions": ["Play", "Like", "Dislike", "Share", "Edit title", "More options"],
+      "pagination": {"type": "button", "text": "Page N"}
+    },
+    "workspaces_tab": {
+      "new_workspace": {"type": "button", "text": "+ New Workspace"},
+      "workspace_item": {"shows": "name, song count, last updated"}
+    },
+    "add_audio": {"type": "button", "text": "+ Audio", "description": "Upload audio"}
+  },
+
+  "song_detail": {
+    "url_pattern": "/song/{uuid}",
+    "controls": {
+      "cover_art": {"type": "image", "edit_button": true},
+      "title": {"type": "text"},
+      "artist": {"type": "link"},
+      "genre": {"type": "text"},
+      "styles": {"type": "expandable", "text": "Show full styles"},
+      "caption": {"type": "input", "text": "Add a Caption"},
+      "date": {"type": "text"},
+      "action_buttons": ["Play", "Comment", "Like", "Dislike", "Share", "More (...)"],
+      "lyrics": {"type": "text", "full_display": true},
+      "comments": {"type": "section", "write_comment_input": true},
+      "remix_button": {"type": "button", "text": "Remix", "position": "bottom-right"}
+    }
+  },
+
+  "remix_edit_menu": {
+    "description": "Opens from Remix/Edit button on clip or song",
+    "options": [
+      "Open in Studio",
+      "Remix",
+      "Cover",
+      "Extend",
+      "Rewrite",
+      "Mashup",
+      "Use as Inspiration",
+      "Adjust Speed",
+      "Replace Section"
+    ]
+  }
+}

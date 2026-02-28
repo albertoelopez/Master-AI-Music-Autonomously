@@ -1,1 +1,1 @@
-"""Suno AI Studio Mastering Agent."""
+"""Suno AI Studio automation - skills-based browser automation."""

@@ -3,3 +3,4 @@ __pycache__/
 venv/
 .env
 screenshot.png
+browser_data/

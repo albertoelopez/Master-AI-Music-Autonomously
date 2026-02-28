@@ -58,7 +58,7 @@ class BrowserController:
             return False
 
         try:
-            await self.page.goto(url, wait_until="networkidle")
+            await self.page.goto(url, wait_until="domcontentloaded")
             console.print(f"[green]✓[/green] Navigated to {url}")
             return True
         except Exception as e:

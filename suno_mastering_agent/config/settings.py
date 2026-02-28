@@ -26,8 +26,20 @@ DEFAULT_CONFIG = SunoConfig()
 
 # Preset templates - these will be populated based on Suno's actual interface
 MASTERING_PRESETS = {
-    "default": MasteringPreset(name="default", description="Balanced mastering"),
-    "loud": MasteringPreset(name="loud", description="Maximized loudness"),
-    "warm": MasteringPreset(name="warm", description="Warm, analog-style mastering"),
-    "bright": MasteringPreset(name="bright", description="Bright, clear mastering"),
+    "default": MasteringPreset(
+        name="default", description="Balanced mastering",
+        loudness=0.5, clarity=0.5, warmth=0.5
+    ),
+    "loud": MasteringPreset(
+        name="loud", description="Maximized loudness",
+        loudness=0.9, clarity=0.6, warmth=0.4
+    ),
+    "warm": MasteringPreset(
+        name="warm", description="Warm, analog-style mastering",
+        loudness=0.5, clarity=0.4, warmth=0.8
+    ),
+    "bright": MasteringPreset(
+        name="bright", description="Bright, clear mastering",
+        loudness=0.5, clarity=0.8, warmth=0.3
+    ),
 }

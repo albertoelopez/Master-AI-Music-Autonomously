@@ -73,16 +73,28 @@ class SunoInterface:
 
     async def is_logged_in(self) -> bool:
         """Check if user is logged into Suno."""
-        # Look for common logged-in indicators
+        if not self.browser.page:
+            return False
+
+        # If Sign In button is visible, user is NOT logged in
+        sign_in_visible = await self.browser.evaluate('''() => {
+            const buttons = [...document.querySelectorAll('button')];
+            return buttons.some(b => b.textContent?.trim() === 'Sign In');
+        }''')
+        if sign_in_visible:
+            return False
+
+        # Look for logged-in indicators (avatar, profile menu, etc.)
         logged_in_selectors = [
-            '[data-testid="user-menu"]',
-            '[data-testid="profile"]',
-            '.user-avatar',
-            'button:has-text("Create")',
+            'img[alt*="avatar" i]',
+            'img[alt*="profile" i]',
+            '[class*="avatar" i]',
+            'a[href="/account"]',
+            'a[href*="/settings"]',
         ]
 
         for selector in logged_in_selectors:
-            if await self.browser.wait_for_selector(selector, timeout=5000):
+            if await self.browser.wait_for_selector(selector, timeout=3000):
                 return True
         return False
 

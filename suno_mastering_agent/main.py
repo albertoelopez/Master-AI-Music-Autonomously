@@ -32,9 +32,9 @@ def cli(ctx, port):
     ctx.obj["port"] = port
 
 
-@cli.command()
+@cli.command("list")
 @click.pass_context
-def list(ctx):
+def list_tracks(ctx):
     """List all tracks in your Suno workspace."""
     port = ctx.obj["port"]
 

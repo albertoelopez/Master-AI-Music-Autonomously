@@ -1,6 +1,9 @@
 #!/bin/bash
 # Suno Mastering Agent launcher
 
+# Change to script directory so relative paths work
+cd "$(dirname "$0")"
+
 # Check if virtual environment exists
 if [ ! -d "venv" ]; then
     echo "Creating virtual environment..."

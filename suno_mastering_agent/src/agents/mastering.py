@@ -107,14 +107,16 @@ class MasteringAgent:
             if not await self.browser.connect():
                 return False
 
+        # Navigate first so is_logged_in can check the page URL
+        await self.nav.to_studio()
+        await self.modal.dismiss_all()
+
         login = await self.nav.is_logged_in()
         if not login.success:
             console.print(f"[yellow]Not logged in: {login.message}[/yellow]")
             console.print("Please run 'suno login' first")
             return False
 
-        await self.nav.to_studio()
-        await self.modal.dismiss_all()
         return True
 
     async def master_track(self, track_index: int, profile: str = "radio_ready") -> MasteringResult:

@@ -48,13 +48,15 @@ class BatchCreateAgent:
         if not await self.browser.connect():
             return False
 
+        # Navigate to Create page first, then check login
+        await self.nav.to_create()
+        await self.modal.dismiss_all()
+
         login = await self.nav.is_logged_in()
         if not login.success:
             console.print(f"[yellow]Not logged in: {login.message}[/yellow]")
             return False
 
-        await self.nav.to_create()
-        await self.modal.dismiss_all()
         return True
 
     async def create_song(self, spec: SongSpec) -> CreateResult:

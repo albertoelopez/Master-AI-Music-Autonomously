@@ -189,11 +189,99 @@ class CreateSkill(Skill):
         return await self._set_slider_by_label("Style Influence", value)
 
     async def click_create(self) -> SkillResult:
-        """Click the Create button to generate a song."""
+        """Click the Create button to generate a song.
+
+        After clicking, checks for CAPTCHA challenges and waits for
+        the user to solve them manually. Re-clicks Create after CAPTCHA
+        is solved since the original click gets consumed by the challenge.
+        """
         if not await self.click_button("Create"):
             return SkillResult(success=False, message="Create button not found")
+        await self.wait(3)
+
+        # Check for CAPTCHA and wait for user to solve it
+        captcha_solved = await self._wait_for_captcha()
+
+        if captcha_solved:
+            # CAPTCHA consumed the original Create click — must click again
+            await self.wait(2)
+            console.print("[yellow]Re-clicking Create after CAPTCHA...[/yellow]")
+            if not await self.click_button("Create"):
+                return SkillResult(success=False, message="Create button not found after CAPTCHA")
+            await self.wait(3)
+
+            # Check if CAPTCHA appears again
+            captcha_again = await self._wait_for_captcha()
+            if captcha_again:
+                await self.wait(2)
+                console.print("[yellow]Re-clicking Create again...[/yellow]")
+                await self.click_button("Create")
+                await self.wait(3)
+
+        # Verify creation started by checking if credits changed or page updated
         await self.wait(2)
-        return SkillResult(success=True, message="Create clicked - song generation started")
+
+        msg = "Create clicked - song generation started"
+        if captcha_solved:
+            msg += " (CAPTCHA solved)"
+        return SkillResult(success=True, message=msg)
+
+    async def _wait_for_captcha(self, timeout: int = 120) -> bool:
+        """Detect CAPTCHA and wait for user to solve it manually.
+
+        Returns True if a CAPTCHA was detected and resolved.
+        """
+        import time
+        start = time.time()
+
+        while time.time() - start < timeout:
+            has_captcha = await self.browser.evaluate("""() => {
+                // Check for common CAPTCHA indicators
+                const body = document.body.innerHTML.toLowerCase();
+                const iframes = document.querySelectorAll('iframe');
+                for (const iframe of iframes) {
+                    const src = (iframe.src || '').toLowerCase();
+                    if (src.includes('captcha') || src.includes('challenge') ||
+                        src.includes('recaptcha') || src.includes('hcaptcha') ||
+                        src.includes('arkoselabs') || src.includes('funcaptcha')) {
+                        return true;
+                    }
+                }
+                // Check for visual CAPTCHA overlays (image grid challenges)
+                const allEls = document.querySelectorAll('[class*=captcha], [id*=captcha], [class*=challenge], [id*=challenge]');
+                if (allEls.length > 0) return true;
+                // Check for Arkose/FunCaptcha enforcement div
+                const arkoDiv = document.querySelector('#arkose-enforcement, [data-callback*=captcha]');
+                if (arkoDiv) return true;
+                // Check for high z-index overlay with image grid (generic CAPTCHA pattern)
+                for (const el of document.querySelectorAll('div')) {
+                    const style = window.getComputedStyle(el);
+                    const z = parseInt(style.zIndex);
+                    if (z > 10000 && style.position === 'fixed') {
+                        const imgs = el.querySelectorAll('img');
+                        if (imgs.length >= 4) return true;  // Image grid = CAPTCHA
+                    }
+                }
+                return false;
+            }""")
+
+            if has_captcha:
+                if time.time() - start < 1:
+                    # First detection
+                    console.print("\n[bold yellow]CAPTCHA detected![/bold yellow] Please solve it in the browser window.")
+                    console.print("[dim]Waiting up to 2 minutes for you to complete it...[/dim]")
+                await self.wait(3)
+                continue
+            else:
+                # No CAPTCHA (either never appeared or was solved)
+                if time.time() - start > 2:
+                    # We waited, meaning CAPTCHA was present and now gone
+                    console.print("[green]CAPTCHA solved! Continuing...[/green]")
+                    return True
+                return False
+
+        console.print("[red]CAPTCHA timeout (2 minutes). Song may not have been created.[/red]")
+        return True
 
     async def create_song(self, lyrics: str, styles: str,
                           title: Optional[str] = None,

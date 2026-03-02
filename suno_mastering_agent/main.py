@@ -15,6 +15,7 @@ from src.browser import BrowserController
 from src.agents.mastering import MasteringAgent, MASTERING_PROFILES
 from src.agents.batch_create import BatchCreateAgent, SongSpec
 from src.agents.autonomous_create import AutoCreateAgent, AutoCreateConfig
+from src.agents.autopilot import AutopilotAgent, AutopilotConfig
 
 console = Console()
 
@@ -262,6 +263,95 @@ def autocreate(
             await agent.run(specs, cfg)
         finally:
             await agent.cleanup()
+
+    asyncio.run(run())
+
+
+@cli.command()
+@click.option("--music-type", "-m", required=True,
+              help="High-level type (e.g. pop, edm, lofi, rock, hiphop, rnb)")
+@click.option("--count", "-n", type=int, default=1,
+              help="How many songs to generate in this run")
+@click.option("--wait-generation", type=int, default=90,
+              help="Seconds to wait after Create before mastering/export")
+@click.option("--wait-between", type=int, default=20,
+              help="Seconds between songs")
+@click.option("--export-type", type=click.Choice(["full", "multitrack"]), default="full",
+              help="Export mode after mastering")
+@click.option("--step-retries", type=int, default=2,
+              help="Retries for create/master_export steps")
+@click.option("--checkpoint-file", default="/tmp/suno_autopilot_checkpoint.json",
+              help="Checkpoint file for resume support")
+@click.option("--resume/--no-resume", default=False,
+              help="Resume from checkpoint if available")
+@click.option("--continue-on-error/--stop-on-error", default=True,
+              help="Continue to next song on failures")
+@click.option("--planner", type=click.Choice(["auto", "template", "dspy"]), default="auto",
+              help="Spec planner backend")
+@click.option("--dspy-model", default=None,
+              help="DSPy model string (overrides DSPY_MODEL env var)")
+@click.option("--phase2/--no-phase2", default=False,
+              help="Enable BMAD/Gastown-inspired phased multi-candidate planning")
+@click.option("--candidate-count", type=int, default=3,
+              help="Number of parallel planning candidates in phase2 mode")
+@click.option("--phase2-artifact-log", default="/tmp/suno_phase2_artifacts.jsonl",
+              help="JSONL artifact log for phase2 planning phases")
+def autopilot(
+    music_type,
+    count,
+    wait_generation,
+    wait_between,
+    export_type,
+    step_retries,
+    checkpoint_file,
+    resume,
+    continue_on_error,
+    planner,
+    dspy_model,
+    phase2,
+    candidate_count,
+    phase2_artifact_log,
+):
+    """Fully automated: generate spec from music type, create, master, export.
+
+    Example:
+        suno autopilot --music-type "edm" --count 5 --wait-generation 100
+    """
+    if count <= 0:
+        raise click.BadParameter("--count must be > 0")
+    if wait_generation < 0 or wait_between < 0:
+        raise click.BadParameter("wait values must be >= 0")
+    if step_retries < 0:
+        raise click.BadParameter("--step-retries must be >= 0")
+    if candidate_count <= 0:
+        raise click.BadParameter("--candidate-count must be > 0")
+
+    async def run():
+        browser = BrowserController()
+        agent = AutopilotAgent(browser)
+        cfg = AutopilotConfig(
+            music_type=music_type,
+            count=count,
+            wait_generation=wait_generation,
+            wait_between=wait_between,
+            export_type=export_type,
+            step_retries=step_retries,
+            checkpoint_file=checkpoint_file,
+            resume=resume,
+            continue_on_error=continue_on_error,
+            planner=planner,
+            dspy_model=dspy_model,
+            phase2=phase2,
+            candidate_count=candidate_count,
+            phase2_artifact_log=phase2_artifact_log,
+        )
+        if not await agent.initialize():
+            await browser.close()
+            return
+        try:
+            await agent.run(cfg)
+        finally:
+            await browser.close()
 
     asyncio.run(run())
 

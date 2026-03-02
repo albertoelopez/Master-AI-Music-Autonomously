@@ -200,9 +200,12 @@ class CreateSkill(Skill):
         await self.wait(3)
 
         # Check for CAPTCHA and wait for user to solve it
-        captcha_solved = await self._wait_for_captcha()
+        captcha_detected, captcha_resolved = await self._wait_for_captcha()
 
-        if captcha_solved:
+        if captcha_detected and not captcha_resolved:
+            return SkillResult(success=False, message="CAPTCHA not solved before timeout")
+
+        if captcha_detected and captcha_resolved:
             # CAPTCHA consumed the original Create click — must click again
             await self.wait(2)
             console.print("[yellow]Re-clicking Create after CAPTCHA...[/yellow]")
@@ -211,28 +214,38 @@ class CreateSkill(Skill):
             await self.wait(3)
 
             # Check if CAPTCHA appears again
-            captcha_again = await self._wait_for_captcha()
-            if captcha_again:
+            captcha_again_detected, captcha_again_resolved = await self._wait_for_captcha()
+            if captcha_again_detected and not captcha_again_resolved:
+                return SkillResult(success=False, message="Second CAPTCHA not solved before timeout")
+            if captcha_again_detected and captcha_again_resolved:
                 await self.wait(2)
                 console.print("[yellow]Re-clicking Create again...[/yellow]")
-                await self.click_button("Create")
+                if not await self.click_button("Create"):
+                    return SkillResult(success=False, message="Create button not found after second CAPTCHA")
                 await self.wait(3)
 
-        # Verify creation started by checking if credits changed or page updated
-        await self.wait(2)
+        # Verify creation moved off the idle form state.
+        started = await self._wait_for_generation_start(timeout=20)
+        if not started:
+            return SkillResult(success=False, message="Create submitted but generation did not start")
 
         msg = "Create clicked - song generation started"
-        if captcha_solved:
+        if captcha_detected:
             msg += " (CAPTCHA solved)"
         return SkillResult(success=True, message=msg)
 
-    async def _wait_for_captcha(self, timeout: int = 120) -> bool:
+    async def _wait_for_captcha(self, timeout: int = 120) -> tuple[bool, bool]:
         """Detect CAPTCHA and wait for user to solve it manually.
 
-        Returns True if a CAPTCHA was detected and resolved.
+        Returns:
+            (detected, resolved)
+            - detected=False,resolved=True: no CAPTCHA appeared
+            - detected=True,resolved=True: CAPTCHA appeared and was solved
+            - detected=True,resolved=False: CAPTCHA appeared but timed out
         """
         import time
         start = time.time()
+        detected = False
 
         while time.time() - start < timeout:
             has_captcha = await self.browser.evaluate("""() => {
@@ -266,22 +279,50 @@ class CreateSkill(Skill):
             }""")
 
             if has_captcha:
-                if time.time() - start < 1:
-                    # First detection
+                if not detected:
+                    detected = True
                     console.print("\n[bold yellow]CAPTCHA detected![/bold yellow] Please solve it in the browser window.")
                     console.print("[dim]Waiting up to 2 minutes for you to complete it...[/dim]")
                 await self.wait(3)
                 continue
-            else:
-                # No CAPTCHA (either never appeared or was solved)
-                if time.time() - start > 2:
-                    # We waited, meaning CAPTCHA was present and now gone
-                    console.print("[green]CAPTCHA solved! Continuing...[/green]")
-                    return True
-                return False
 
-        console.print("[red]CAPTCHA timeout (2 minutes). Song may not have been created.[/red]")
-        return True
+            if detected:
+                console.print("[green]CAPTCHA solved! Continuing...[/green]")
+                return True, True
+
+            # No challenge surfaced in this cycle.
+            return False, True
+
+        console.print("[red]CAPTCHA timeout (2 minutes).[/red]")
+        return True, False
+
+    async def _is_create_form_idle(self) -> bool:
+        """Return True if the primary Create button is still visible/enabled."""
+        return bool(await self.browser.evaluate("""() => {
+            const buttons = Array.from(document.querySelectorAll('button'));
+            for (const b of buttons) {
+                const text = (b.textContent || '').trim().toLowerCase();
+                const r = b.getBoundingClientRect();
+                if (text === 'create' && r.width > 120 && r.height > 30 && r.y > 100 && r.y < window.innerHeight) {
+                    const style = window.getComputedStyle(b);
+                    const disabled = b.disabled || b.getAttribute('aria-disabled') === 'true';
+                    const hidden = style.visibility === 'hidden' || style.display === 'none';
+                    return !disabled && !hidden;
+                }
+            }
+            return false;
+        }"""))
+
+    async def _wait_for_generation_start(self, timeout: int = 20) -> bool:
+        """Wait until Create form leaves idle state, implying generation started."""
+        import time
+        start = time.time()
+        while time.time() - start < timeout:
+            idle = await self._is_create_form_idle()
+            if not idle:
+                return True
+            await self.wait(1)
+        return False
 
     async def create_song(self, lyrics: str, styles: str,
                           title: Optional[str] = None,

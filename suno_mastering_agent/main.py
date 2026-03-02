@@ -14,6 +14,7 @@ from rich.prompt import Prompt
 from src.browser import BrowserController
 from src.agents.mastering import MasteringAgent, MASTERING_PROFILES
 from src.agents.batch_create import BatchCreateAgent, SongSpec
+from src.agents.autonomous_create import AutoCreateAgent, AutoCreateConfig
 
 console = Console()
 
@@ -172,6 +173,95 @@ def batch(json_file, wait):
         await agent.create_batch(specs, wait_between=wait)
         agent.show_summary()
         await agent.cleanup()
+
+    asyncio.run(run())
+
+
+@cli.command()
+@click.argument("json_file", type=click.Path(exists=True))
+@click.option("--max-songs", type=int, default=0,
+              help="Stop after N successful songs (0 = no song limit)")
+@click.option("--hours", type=float, default=0.0,
+              help="Stop after this many hours (0 = no time limit)")
+@click.option("--forever", is_flag=True,
+              help="Run continuously until interrupted")
+@click.option("--wait", "wait_between", type=int, default=75,
+              help="Seconds to wait after each successful create")
+@click.option("--retries", type=int, default=2,
+              help="Retries per song spec before skipping")
+@click.option("--retry-wait", type=int, default=20,
+              help="Seconds between retries")
+@click.option("--cycle/--no-cycle", default=True,
+              help="Loop back to start of JSON specs when end is reached")
+@click.option("--log-file", default="/tmp/suno_autocreate.jsonl",
+              help="JSONL log path for attempts/results")
+@click.option("--pause-on-captcha/--no-pause-on-captcha", default=True,
+              help="Pause queue when CAPTCHA blocks creation")
+@click.option("--resume-file", default="/tmp/suno_autocreate.resume",
+              help="File signal used to resume after CAPTCHA pause")
+@click.option("--notify-cmd", default=None,
+              help="Optional shell command run on CAPTCHA pause; message is passed as one arg")
+def autocreate(
+    json_file,
+    max_songs,
+    hours,
+    forever,
+    wait_between,
+    retries,
+    retry_wait,
+    cycle,
+    log_file,
+    pause_on_captcha,
+    resume_file,
+    notify_cmd,
+):
+    """Run autonomous song creation queue from a JSON spec file.
+
+    JSON format: [{"lyrics": "...", "styles": "...", "title": "..."}]
+
+    Examples:
+        suno autocreate songs.json --max-songs 100 --wait 90
+        suno autocreate songs.json --hours 6 --cycle
+        suno autocreate songs.json --forever --retries 3
+    """
+
+    if max_songs < 0:
+        raise click.BadParameter("--max-songs must be >= 0")
+    if hours < 0:
+        raise click.BadParameter("--hours must be >= 0")
+    if wait_between < 0 or retries < 0 or retry_wait < 0:
+        raise click.BadParameter("wait/retries values must be >= 0")
+
+    async def run():
+        with open(json_file, encoding="utf-8") as f:
+            songs = json.load(f)
+        specs = [SongSpec(**s) for s in songs]
+        console.print(f"Loaded {len(specs)} song specs from {json_file}")
+
+        browser = BrowserController()
+        agent = AutoCreateAgent(browser)
+        cfg = AutoCreateConfig(
+            wait_between=wait_between,
+            retry_wait=retry_wait,
+            retries=retries,
+            max_songs=max_songs,
+            max_hours=hours,
+            forever=forever,
+            cycle_specs=cycle,
+            log_file=log_file,
+            pause_on_captcha=pause_on_captcha,
+            resume_file=resume_file,
+            notify_cmd=notify_cmd,
+        )
+
+        if not await agent.initialize():
+            await agent.cleanup()
+            return
+
+        try:
+            await agent.run(specs, cfg)
+        finally:
+            await agent.cleanup()
 
     asyncio.run(run())
 

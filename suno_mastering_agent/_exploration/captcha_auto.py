@@ -351,31 +351,82 @@ Signal in the noise""")
         # If not solved, it's a new round - loop again
         await asyncio.sleep(2)
 
-    # CAPTCHA should be solved now - re-click Create
-    await asyncio.sleep(2)
-    if not await is_captcha_visible(browser):
-        print("\n=== Re-clicking Create ===")
-        await create.click_button("Create")
-        await asyncio.sleep(5)
+    # CAPTCHA solved — do NOT re-click Create!
+    # hCaptcha's callback should automatically trigger Suno's form submission.
+    # Just wait and check if the song starts generating.
+    print("\n=== CAPTCHA solved. Waiting for Suno to process... ===")
+    await asyncio.sleep(8)
 
-        # Check for yet another CAPTCHA
-        if await is_captcha_visible(browser):
-            print("Another CAPTCHA after re-click!")
+    # Check if song generation started (page navigates or form disappears)
+    for check in range(30):  # Up to 60 seconds
+        await asyncio.sleep(2)
+
+        # Check if we left the create page
+        current_url = page.url
+        if "/create" not in current_url:
+            print(f"\nNavigated away to: {current_url}")
+            print("Song generation started!")
+            break
+
+        # Check if Create button is gone or loading
+        form_state = await browser.evaluate("""() => {
+            const btns = document.querySelectorAll('button');
+            for (const b of btns) {
+                const text = b.textContent.trim();
+                const r = b.getBoundingClientRect();
+                if (text === 'Create' && r.width > 200) return 'form_ready';
+                if ((text.includes('Creating') || text.includes('Loading')) && r.width > 200) return 'creating';
+            }
+            // Check for any hcaptcha still visible
+            const iframes = document.querySelectorAll('iframe');
+            for (const f of iframes) {
+                if (f.src.includes('hcaptcha') && f.src.includes('challenge')) {
+                    const r = f.getBoundingClientRect();
+                    if (r.width > 100 && r.y > -100 && r.x > 10) return 'captcha_visible';
+                }
+            }
+            return 'unknown';
+        }""")
+
+        if form_state == 'creating':
+            print("\nSong is being created!")
+            break
+        elif form_state == 'captcha_visible':
+            print("\nAnother CAPTCHA appeared after solve. Solving...")
             for round_num in range(6, 11):
                 solved = await solve_round(browser, page, round_num)
                 if solved:
                     break
                 await asyncio.sleep(2)
-
-            if not await is_captcha_visible(browser):
-                await asyncio.sleep(2)
-                await create.click_button("Create")
+            # After this solve, wait again (don't re-click)
+            await asyncio.sleep(5)
+            continue
+        elif form_state == 'form_ready' and check > 5:
+            # Form is still there after 10+ seconds - the callback didn't fire
+            # Try clicking Create once as last resort
+            print("\nForm still ready after 10s - callback may not have fired.")
+            print("Clicking Create as last resort...")
+            await create.click_button("Create")
+            await asyncio.sleep(5)
+            # If another CAPTCHA appears, solve it
+            if await is_captcha_visible(browser):
+                print("CAPTCHA after last-resort click. Solving...")
+                for round_num in range(11, 16):
+                    solved = await solve_round(browser, page, round_num)
+                    if solved:
+                        break
+                    await asyncio.sleep(2)
                 await asyncio.sleep(5)
+            break
 
-    # Final status
-    await asyncio.sleep(5)
+        if check % 5 == 0 and check > 0:
+            print(f"  [{check*2}s] State: {form_state}")
+
+    # Final screenshot
+    await asyncio.sleep(3)
     await browser.screenshot("/tmp/suno_skills/final_result.png")
 
+    # Check final state
     still_form = await browser.evaluate("""() => {
         const btns = document.querySelectorAll('button');
         for (const b of btns) {
@@ -387,7 +438,7 @@ Signal in the noise""")
     if still_form:
         print("\nStill on form - song not yet created")
     else:
-        print("\nSong generation started!")
+        print("\nSong generation likely started!")
 
     print("\nBrowser staying open for 2 minutes...")
     await asyncio.sleep(120)

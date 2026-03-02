@@ -189,8 +189,11 @@ def export_handler(export_type):
 def chat_handler(message, chat_history):
     """Process a chat message through the ReAct agent."""
     global _browser, _llm, _chat_history
+    if chat_history is None:
+        chat_history = []
+
     if not _browser or not _browser.page:
-        chat_history.append({"role": "assistant", "content": "Browser not connected. Please restart the agent."})
+        chat_history.append((message, "Browser not connected. Please restart the agent."))
         return "", chat_history
 
     try:
@@ -198,10 +201,10 @@ def chat_handler(message, chat_history):
             run_interactive(_browser, message, llm=_llm, history=_chat_history)
         )
         _log(f"Chat: {message[:50]}... -> {response[:50]}...")
-        chat_history.append({"role": "assistant", "content": response})
+        chat_history.append((message, response))
         return "", chat_history
     except Exception as e:
-        chat_history.append({"role": "assistant", "content": f"Error: {e}"})
+        chat_history.append((message, f"Error: {e}"))
         return "", chat_history
 
 
@@ -250,99 +253,85 @@ def create_app(browser: BrowserController, llm: BaseChatModel) -> gr.Blocks:
 
     profile_choices = list(MASTERING_PROFILES.keys())
 
-    with gr.Blocks(title="Suno AI Agent", theme=gr.themes.Soft()) as app:
+    with gr.Blocks(title="Suno AI Agent") as app:
         gr.Markdown("# Suno AI Agent\nAutonomous music creation, mastering, and export")
-
-        with gr.Tabs():
-            # --- Create tab ---
-            with gr.Tab("Create"):
-                gr.Markdown("### Create a New Song")
-                with gr.Row():
-                    with gr.Column(scale=2):
-                        lyrics_input = gr.Textbox(
-                            label="Lyrics", lines=8,
-                            placeholder="Write your lyrics here...\n\n[Verse 1]\nWalking down the street...",
-                        )
-                        styles_input = gr.Textbox(
-                            label="Styles",
-                            placeholder="indie pop, acoustic, dreamy, female vocals",
-                        )
-                    with gr.Column(scale=1):
-                        title_input = gr.Textbox(label="Title (optional)", placeholder="My Song")
-                        weirdness_slider = gr.Slider(0, 100, 50, step=5, label="Weirdness")
-                        influence_slider = gr.Slider(0, 100, 50, step=5, label="Style Influence")
-                        create_btn = gr.Button("Create Song", variant="primary")
-                create_output = gr.Textbox(label="Result", interactive=False)
-                create_btn.click(
-                    create_song_handler,
-                    [lyrics_input, styles_input, title_input, weirdness_slider, influence_slider],
-                    create_output,
+        gr.Markdown("## Create")
+        with gr.Row():
+            with gr.Column(scale=2):
+                lyrics_input = gr.Textbox(
+                    label="Lyrics", lines=8,
+                    placeholder="Write your lyrics here...\n\n[Verse 1]\nWalking down the street...",
                 )
-
-            # --- Master tab ---
-            with gr.Tab("Master"):
-                gr.Markdown("### Master Tracks")
-                with gr.Row():
-                    profile_dropdown = gr.Dropdown(
-                        choices=profile_choices, value="radio_ready",
-                        label="Mastering Profile",
-                    )
-                    track_input = gr.Number(label="Track # (1-based)", value=1, precision=0)
-                    all_checkbox = gr.Checkbox(label="Master ALL tracks", value=True)
-
-                with gr.Row():
-                    master_btn = gr.Button("Apply Mastering", variant="primary")
-                    tracks_btn = gr.Button("Refresh Tracks")
-
-                master_output = gr.Textbox(label="Result", interactive=False)
-                tracks_output = gr.Textbox(label="Tracks", interactive=False)
-
-                master_btn.click(master_handler, [profile_dropdown, track_input, all_checkbox], master_output)
-                tracks_btn.click(get_tracks_handler, [], tracks_output)
-
-                # Profile descriptions
-                profile_desc = "\n".join(
-                    f"**{name}**: {prof['description']}"
-                    for name, prof in MASTERING_PROFILES.items()
+                styles_input = gr.Textbox(
+                    label="Styles",
+                    placeholder="indie pop, acoustic, dreamy, female vocals",
                 )
-                gr.Markdown(f"### Profiles\n{profile_desc}")
+            with gr.Column(scale=1):
+                title_input = gr.Textbox(label="Title (optional)", placeholder="My Song")
+                weirdness_slider = gr.Slider(0, 100, 50, step=5, label="Weirdness")
+                influence_slider = gr.Slider(0, 100, 50, step=5, label="Style Influence")
+                create_btn = gr.Button("Create Song", variant="primary")
+        create_output = gr.Textbox(label="Create Result", interactive=False)
+        create_btn.click(
+            create_song_handler,
+            [lyrics_input, styles_input, title_input, weirdness_slider, influence_slider],
+            create_output,
+        )
 
-            # --- Export tab ---
-            with gr.Tab("Export"):
-                gr.Markdown("### Export Project")
-                export_radio = gr.Radio(
-                    ["Full Song", "Multitrack", "Stems"],
-                    value="Full Song", label="Export Type",
-                )
-                export_btn = gr.Button("Export", variant="primary")
-                export_output = gr.Textbox(label="Result", interactive=False)
-                export_btn.click(export_handler, [export_radio], export_output)
+        gr.Markdown("---\n## Master")
+        with gr.Row():
+            profile_dropdown = gr.Dropdown(
+                choices=profile_choices, value="radio_ready",
+                label="Mastering Profile",
+            )
+            track_input = gr.Number(label="Track # (1-based)", value=1, precision=0)
+            all_checkbox = gr.Checkbox(label="Master ALL tracks", value=True)
 
-            # --- Agent Chat tab ---
-            with gr.Tab("Agent Chat"):
-                gr.Markdown("### Talk to the AI Agent\nUse natural language to control Suno.")
-                chatbot = gr.Chatbot(type="messages", height=400)
-                with gr.Row():
-                    chat_input = gr.Textbox(
-                        placeholder="e.g. 'Master all tracks with bass_heavy and export'",
-                        show_label=False, scale=4,
-                    )
-                    send_btn = gr.Button("Send", variant="primary", scale=1)
+        with gr.Row():
+            master_btn = gr.Button("Apply Mastering", variant="primary")
+            tracks_btn = gr.Button("Refresh Tracks")
 
-                send_btn.click(chat_handler, [chat_input, chatbot], [chat_input, chatbot])
-                chat_input.submit(chat_handler, [chat_input, chatbot], [chat_input, chatbot])
+        master_output = gr.Textbox(label="Master Result", interactive=False)
+        tracks_output = gr.Textbox(label="Tracks", interactive=False)
 
-            # --- Monitor tab ---
-            with gr.Tab("Monitor"):
-                gr.Markdown("### Browser Monitor")
-                with gr.Row():
-                    screenshot_btn = gr.Button("Take Screenshot")
-                    refresh_btn = gr.Button("Refresh Log")
+        master_btn.click(master_handler, [profile_dropdown, track_input, all_checkbox], master_output)
+        tracks_btn.click(get_tracks_handler, [], tracks_output)
 
-                screenshot_img = gr.Image(label="Browser Screenshot", type="filepath")
-                log_output = gr.Textbox(label="Action Log", lines=15, interactive=False)
+        profile_desc = "\n".join(
+            f"**{name}**: {prof['description']}"
+            for name, prof in MASTERING_PROFILES.items()
+        )
+        gr.Markdown(f"### Profiles\n{profile_desc}")
 
-                screenshot_btn.click(screenshot_handler, [], [screenshot_img, log_output])
-                refresh_btn.click(refresh_log, [], log_output)
+        gr.Markdown("---\n## Export")
+        export_radio = gr.Radio(
+            ["Full Song", "Multitrack", "Stems"],
+            value="Full Song", label="Export Type",
+        )
+        export_btn = gr.Button("Export", variant="primary")
+        export_output = gr.Textbox(label="Export Result", interactive=False)
+        export_btn.click(export_handler, [export_radio], export_output)
+
+        gr.Markdown("---\n## Agent Chat\nUse natural language to control Suno.")
+        chatbot = gr.Chatbot(height=400)
+        with gr.Row():
+            chat_input = gr.Textbox(
+                placeholder="e.g. 'Master all tracks with bass_heavy and export'",
+                show_label=False, scale=4,
+            )
+            send_btn = gr.Button("Send", variant="primary", scale=1)
+        send_btn.click(chat_handler, [chat_input, chatbot], [chat_input, chatbot])
+        chat_input.submit(chat_handler, [chat_input, chatbot], [chat_input, chatbot])
+
+        gr.Markdown("---\n## Monitor")
+        with gr.Row():
+            screenshot_btn = gr.Button("Take Screenshot")
+            refresh_btn = gr.Button("Refresh Log")
+
+        screenshot_img = gr.Image(label="Browser Screenshot", type="filepath")
+        log_output = gr.Textbox(label="Action Log", lines=15, interactive=False)
+
+        screenshot_btn.click(screenshot_handler, [], [screenshot_img, log_output])
+        refresh_btn.click(refresh_log, [], log_output)
 
     return app

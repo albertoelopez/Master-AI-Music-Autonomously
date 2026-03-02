@@ -13,6 +13,13 @@ We are actively building and hardening the **in-repo hybrid autopilot**:
 - execute: create -> wait -> master -> export
 - resilience: retries, checkpoint/resume, phase artifacts
 
+## Local Model Defaults
+
+Project defaults are configured for local Ollama:
+- provider: `ollama`
+- default model: `qwen3:8b`
+- fast fallback option: `qwen3:0.6b`
+
 Example:
 
 ```bash

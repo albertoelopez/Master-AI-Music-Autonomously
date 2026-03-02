@@ -23,6 +23,7 @@ from ..skills import (
 )
 from ..agent.tools import set_browser
 from ..agent.workflows import run_interactive
+from ..agent.llm_config import resolve_llm
 
 
 # Module-level state
@@ -31,6 +32,8 @@ _llm: Optional[BaseChatModel] = None
 _chat_history: Optional[list] = None
 _action_log: list[str] = []
 _main_loop: Optional[asyncio.AbstractEventLoop] = None
+_llm_provider: str = "ollama"
+_llm_model: str = "qwen3:8b"
 
 
 def set_main_loop(loop: asyncio.AbstractEventLoop):
@@ -208,6 +211,84 @@ def chat_handler(message, chat_history):
         return "", chat_history
 
 
+def configure_llm_handler(provider, model, api_key, base_url, temperature):
+    """Update active LLM config for chat/autopilot tasks.
+
+    API providers override local models when both provider+api_key are provided.
+    """
+    global _llm, _llm_provider, _llm_model, _chat_history
+
+    provider = (provider or "ollama").strip().lower()
+    if provider == "claude":
+        provider = "anthropic"
+    model = (model or "").strip() or None
+    api_key = (api_key or "").strip() or None
+    base_url = (base_url or "").strip() or None
+    temp = float(temperature if temperature is not None else 0.1)
+
+    try:
+        _llm = resolve_llm(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            temperature=temp,
+        )
+        _llm_provider = provider
+        _llm_model = model or "config default"
+        _chat_history = None  # reset history when model/provider changes
+        _log(f"LLM configured: {_llm_provider}/{_llm_model}")
+        if api_key and provider != "ollama":
+            return f"LLM updated to API provider: {_llm_provider} / {_llm_model}"
+        return f"LLM updated: {_llm_provider} / {_llm_model}"
+    except Exception as api_err:
+        # Requested API model failed -> fallback to local Ollama.
+        try:
+            fallback_model = "qwen3:8b"
+            _llm = resolve_llm(
+                provider="ollama",
+                model=fallback_model,
+                temperature=temp,
+            )
+            _llm_provider = "ollama"
+            _llm_model = fallback_model
+            _chat_history = None
+            _log(f"LLM fallback: API failed ({api_err}); using ollama/{fallback_model}")
+            return (
+                f"API model failed ({api_err}). "
+                f"Fell back to ollama/{fallback_model}."
+            )
+        except Exception as fallback_err:
+            return f"API failed ({api_err}) and fallback to Ollama failed ({fallback_err})"
+
+
+def autopilot_ui_handler(music_type, count, wait_generation, profile, export_type):
+    """Run a high-level autonomous flow from one compact UI form."""
+    global _browser, _llm, _chat_history
+    if not _browser or not _browser.page:
+        return "Browser not connected."
+
+    async def _autopilot():
+        nonlocal music_type, count, wait_generation, profile, export_type
+        summary = []
+        songs = max(1, int(count or 1))
+        wait_s = max(0, int(wait_generation or 0))
+        for i in range(songs):
+            task = (
+                f"Create one {music_type} song now, then wait about {wait_s} seconds, "
+                f"master all tracks with profile {profile}, and export as {export_type}."
+            )
+            response, _hist = await run_interactive(_browser, task, llm=_llm, history=_chat_history)
+            _log(f"Autopilot {i + 1}/{songs}: {response[:80]}...")
+            summary.append(f"{i + 1}. {response}")
+        return "\n\n".join(summary)
+
+    try:
+        return _run_async(_autopilot())
+    except Exception as e:
+        return f"Error: {e}"
+
+
 # --- Monitor tab callbacks ---
 
 def screenshot_handler():
@@ -254,69 +335,104 @@ def create_app(browser: BrowserController, llm: BaseChatModel) -> gr.Blocks:
     profile_choices = list(MASTERING_PROFILES.keys())
 
     with gr.Blocks(title="Suno AI Agent") as app:
-        gr.Markdown("# Suno AI Agent\nAutonomous music creation, mastering, and export")
-        gr.Markdown("## Create")
+        gr.Markdown("# Suno AI Agent\nSingle-page control panel")
+        gr.Markdown("## LLM Settings")
         with gr.Row():
-            with gr.Column(scale=2):
-                lyrics_input = gr.Textbox(
-                    label="Lyrics", lines=8,
-                    placeholder="Write your lyrics here...\n\n[Verse 1]\nWalking down the street...",
-                )
-                styles_input = gr.Textbox(
-                    label="Styles",
-                    placeholder="indie pop, acoustic, dreamy, female vocals",
-                )
-            with gr.Column(scale=1):
-                title_input = gr.Textbox(label="Title (optional)", placeholder="My Song")
-                weirdness_slider = gr.Slider(0, 100, 50, step=5, label="Weirdness")
-                influence_slider = gr.Slider(0, 100, 50, step=5, label="Style Influence")
-                create_btn = gr.Button("Create Song", variant="primary")
-        create_output = gr.Textbox(label="Create Result", interactive=False)
-        create_btn.click(
-            create_song_handler,
-            [lyrics_input, styles_input, title_input, weirdness_slider, influence_slider],
-            create_output,
-        )
-
-        gr.Markdown("---\n## Master")
-        with gr.Row():
-            profile_dropdown = gr.Dropdown(
-                choices=profile_choices, value="radio_ready",
-                label="Mastering Profile",
+            llm_provider = gr.Dropdown(
+                choices=["ollama", "openai", "groq", "google", "claude", "deepseek"],
+                value="ollama",
+                label="Provider",
             )
-            track_input = gr.Number(label="Track # (1-based)", value=1, precision=0)
-            all_checkbox = gr.Checkbox(label="Master ALL tracks", value=True)
-
+            llm_model = gr.Textbox(
+                label="Model",
+                value="qwen3:8b",
+                placeholder="qwen3:8b | gpt-4o-mini | gemini-1.5-pro | claude-3-5-sonnet-latest",
+            )
+            llm_temp = gr.Slider(0.0, 1.0, 0.1, step=0.05, label="Temperature")
         with gr.Row():
-            master_btn = gr.Button("Apply Mastering", variant="primary")
-            tracks_btn = gr.Button("Refresh Tracks")
-
-        master_output = gr.Textbox(label="Master Result", interactive=False)
-        tracks_output = gr.Textbox(label="Tracks", interactive=False)
-
-        master_btn.click(master_handler, [profile_dropdown, track_input, all_checkbox], master_output)
-        tracks_btn.click(get_tracks_handler, [], tracks_output)
-
-        profile_desc = "\n".join(
-            f"**{name}**: {prof['description']}"
-            for name, prof in MASTERING_PROFILES.items()
+            llm_api_key = gr.Textbox(label="API Key (optional)", type="password")
+            llm_base_url = gr.Textbox(label="Base URL (optional)")
+        llm_apply_btn = gr.Button("Apply LLM Settings")
+        llm_status = gr.Textbox(label="LLM Status", interactive=False)
+        llm_apply_btn.click(
+            configure_llm_handler,
+            [llm_provider, llm_model, llm_api_key, llm_base_url, llm_temp],
+            llm_status,
         )
-        gr.Markdown(f"### Profiles\n{profile_desc}")
 
-        gr.Markdown("---\n## Export")
-        export_radio = gr.Radio(
-            ["Full Song", "Multitrack", "Stems"],
-            value="Full Song", label="Export Type",
+        gr.Markdown("## Autopilot")
+        with gr.Row():
+            music_type_input = gr.Textbox(label="Music Type", value="pop", placeholder="edm, pop, lofi, rock...")
+            count_input = gr.Number(label="Songs", value=1, precision=0)
+            wait_input = gr.Number(label="Wait (sec)", value=90, precision=0)
+        with gr.Row():
+            auto_profile = gr.Dropdown(choices=profile_choices, value="radio_ready", label="Mastering Profile")
+            auto_export = gr.Radio(["full", "multitrack"], value="full", label="Export")
+        autopilot_btn = gr.Button("Run Autopilot", variant="primary")
+        autopilot_output = gr.Textbox(label="Autopilot Output", lines=8, interactive=False)
+        autopilot_btn.click(
+            autopilot_ui_handler,
+            [music_type_input, count_input, wait_input, auto_profile, auto_export],
+            autopilot_output,
         )
-        export_btn = gr.Button("Export", variant="primary")
-        export_output = gr.Textbox(label="Export Result", interactive=False)
-        export_btn.click(export_handler, [export_radio], export_output)
 
-        gr.Markdown("---\n## Agent Chat\nUse natural language to control Suno.")
-        chatbot = gr.Chatbot(height=400)
+        with gr.Accordion("Advanced Manual Controls", open=False):
+            gr.Markdown("### Create")
+            with gr.Row():
+                with gr.Column(scale=2):
+                    lyrics_input = gr.Textbox(
+                        label="Lyrics", lines=8,
+                        placeholder="Write your lyrics here...\n\n[Verse 1]\nWalking down the street...",
+                    )
+                    styles_input = gr.Textbox(
+                        label="Styles",
+                        placeholder="indie pop, acoustic, dreamy, female vocals",
+                    )
+                with gr.Column(scale=1):
+                    title_input = gr.Textbox(label="Title (optional)", placeholder="My Song")
+                    weirdness_slider = gr.Slider(0, 100, 50, step=5, label="Weirdness")
+                    influence_slider = gr.Slider(0, 100, 50, step=5, label="Style Influence")
+                    create_btn = gr.Button("Create Song", variant="primary")
+            create_output = gr.Textbox(label="Create Result", interactive=False)
+            create_btn.click(
+                create_song_handler,
+                [lyrics_input, styles_input, title_input, weirdness_slider, influence_slider],
+                create_output,
+            )
+
+            gr.Markdown("---\n### Master")
+            with gr.Row():
+                profile_dropdown = gr.Dropdown(
+                    choices=profile_choices, value="radio_ready",
+                    label="Mastering Profile",
+                )
+                track_input = gr.Number(label="Track # (1-based)", value=1, precision=0)
+                all_checkbox = gr.Checkbox(label="Master ALL tracks", value=True)
+
+            with gr.Row():
+                master_btn = gr.Button("Apply Mastering", variant="primary")
+                tracks_btn = gr.Button("Refresh Tracks")
+
+            master_output = gr.Textbox(label="Master Result", interactive=False)
+            tracks_output = gr.Textbox(label="Tracks", interactive=False)
+
+            master_btn.click(master_handler, [profile_dropdown, track_input, all_checkbox], master_output)
+            tracks_btn.click(get_tracks_handler, [], tracks_output)
+
+            gr.Markdown("---\n### Export")
+            export_radio = gr.Radio(
+                ["Full Song", "Multitrack", "Stems"],
+                value="Full Song", label="Export Type",
+            )
+            export_btn = gr.Button("Export", variant="primary")
+            export_output = gr.Textbox(label="Export Result", interactive=False)
+            export_btn.click(export_handler, [export_radio], export_output)
+
+        gr.Markdown("---\n## Agent Chat")
+        chatbot = gr.Chatbot(height=320)
         with gr.Row():
             chat_input = gr.Textbox(
-                placeholder="e.g. 'Master all tracks with bass_heavy and export'",
+                placeholder="Ask the agent to do anything in Suno...",
                 show_label=False, scale=4,
             )
             send_btn = gr.Button("Send", variant="primary", scale=1)

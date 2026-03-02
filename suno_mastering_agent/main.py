@@ -296,6 +296,12 @@ def autocreate(
               help="Number of parallel planning candidates in phase2 mode")
 @click.option("--phase2-artifact-log", default="/tmp/suno_phase2_artifacts.jsonl",
               help="JSONL artifact log for phase2 planning phases")
+@click.option("--pause-on-captcha/--no-pause-on-captcha", default=True,
+              help="Pause autopilot and wait for resume signal when CAPTCHA appears")
+@click.option("--resume-file", default="/tmp/suno_autopilot.resume",
+              help="Resume signal file used when paused on CAPTCHA")
+@click.option("--event-log", default="/tmp/suno_autopilot_events.jsonl",
+              help="JSONL event log for autopilot run lifecycle")
 def autopilot(
     music_type,
     count,
@@ -311,6 +317,9 @@ def autopilot(
     phase2,
     candidate_count,
     phase2_artifact_log,
+    pause_on_captcha,
+    resume_file,
+    event_log,
 ):
     """Fully automated: generate spec from music type, create, master, export.
 
@@ -344,6 +353,9 @@ def autopilot(
             phase2=phase2,
             candidate_count=candidate_count,
             phase2_artifact_log=phase2_artifact_log,
+            pause_on_captcha=pause_on_captcha,
+            resume_file=resume_file,
+            event_log=event_log,
         )
         if not await agent.initialize():
             await browser.close()
@@ -421,7 +433,8 @@ def agent(ctx, provider, model, ui_type, task):
 
     Examples:
         suno agent                                      # Interactive CLI
-        suno agent --provider ollama --model llama3.3    # Use local Ollama
+        suno agent --provider ollama --model qwen3:8b    # Use local Ollama (recommended)
+        suno agent --provider ollama --model qwen3:0.6b  # Faster/smaller model
         suno agent --ui gradio                           # Web UI at localhost:7860
         suno agent --task "Master all tracks with radio_ready"
     """

@@ -6,7 +6,8 @@ to intelligently interact with Suno's web UI.
 
 Usage:
     python agent.py                                    # Interactive REPL (default config)
-    python agent.py --provider ollama --model llama3.3  # Override LLM
+    python agent.py --provider ollama --model qwen3:8b  # Override LLM (recommended)
+    python agent.py --provider ollama --model qwen3:0.6b  # Smaller/faster local model
     python agent.py --ui gradio                        # Web UI mode
     python agent.py --ui cli                           # CLI REPL mode
     python agent.py --task "Master all tracks with radio_ready and export"

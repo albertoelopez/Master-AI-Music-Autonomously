@@ -2,10 +2,10 @@
 # Configure the LLM provider, browser settings, and autonomy levels.
 
 llm:
-  provider: deepseek          # deepseek | ollama | openai | anthropic
-  model: deepseek-chat        # Model name (provider-specific)
+  provider: ollama            # deepseek | ollama | openai | anthropic
+  model: qwen3:8b             # Local default model (installed)
   temperature: 0.1            # Low temperature for deterministic actions
-  api_key_env: DEEPSEEK_API_KEY  # Env var name holding the API key
+  api_key_env: ""             # Not needed for local Ollama
 
 browser:
   cdp_port: 9222              # Chrome DevTools Protocol port

@@ -1,6 +1,6 @@
 """LLM provider resolver for the Suno AI agent.
 
-Supports DeepSeek, Ollama, OpenAI, and Anthropic via LangChain.
+Supports Ollama, DeepSeek, OpenAI, Anthropic/Claude, Groq, and Google via LangChain.
 Reads defaults from config/agent_config.yaml, overridable at runtime.
 """
 import os
@@ -32,10 +32,10 @@ def resolve_llm(
 ) -> BaseChatModel:
     """Resolve an LLM instance from provider name and model.
 
-    Falls back to config/agent_config.yaml defaults, then to DeepSeek.
+    Falls back to config/agent_config.yaml defaults, then to local Ollama.
 
     Args:
-        provider: LLM provider (deepseek, ollama, openai, anthropic)
+        provider: LLM provider (ollama, deepseek, openai, anthropic/claude, groq, google)
         model: Model name/ID
         temperature: Sampling temperature
         api_key: API key (overrides env var)
@@ -48,8 +48,8 @@ def resolve_llm(
     config = load_agent_config()
     llm_config = config.get("llm", {})
 
-    provider = provider or llm_config.get("provider", "deepseek")
-    model = model or llm_config.get("model", "deepseek-chat")
+    provider = provider or llm_config.get("provider", "ollama")
+    model = model or llm_config.get("model", "qwen3:8b")
     temperature = temperature if temperature is not None else llm_config.get("temperature", 0.1)
 
     # Resolve API key from explicit arg, env var name in config, or standard env vars
@@ -59,6 +59,10 @@ def resolve_llm(
             api_key = os.environ.get(env_var)
 
     provider = provider.lower()
+    if provider == "claude":
+        provider = "anthropic"
+    if provider == "gemini":
+        provider = "google"
 
     if provider == "deepseek":
         from langchain_deepseek import ChatDeepSeek
@@ -117,10 +121,44 @@ def resolve_llm(
             **kwargs,
         )
 
+    elif provider == "groq":
+        try:
+            from langchain_groq import ChatGroq
+        except ImportError:
+            raise ImportError(
+                "langchain-groq is required for the Groq provider. "
+                "Install it with: pip install langchain-groq"
+            )
+
+        api_key = api_key or os.environ.get("GROQ_API_KEY")
+        return ChatGroq(
+            model=model,
+            temperature=temperature,
+            api_key=api_key,
+            **kwargs,
+        )
+
+    elif provider == "google":
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+        except ImportError:
+            raise ImportError(
+                "langchain-google-genai is required for the Google provider. "
+                "Install it with: pip install langchain-google-genai"
+            )
+
+        api_key = api_key or os.environ.get("GOOGLE_API_KEY")
+        return ChatGoogleGenerativeAI(
+            model=model,
+            temperature=temperature,
+            google_api_key=api_key,
+            **kwargs,
+        )
+
     else:
         raise ValueError(
             f"Unknown LLM provider: {provider}. "
-            f"Supported: deepseek, ollama, openai, anthropic"
+            f"Supported: ollama, deepseek, openai, anthropic/claude, groq, google"
         )
 
 

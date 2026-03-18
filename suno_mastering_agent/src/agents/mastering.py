@@ -101,14 +101,23 @@ class MasteringAgent:
         self.mixing = MixingSkill(browser)
         self.results: List[MasteringResult] = []
 
-    async def initialize(self) -> bool:
-        """Navigate to Studio and prepare for mastering."""
+    async def initialize(self, project: Optional[str] = None) -> bool:
+        """Navigate to Studio and prepare for mastering.
+
+        Args:
+            project: Optional song name to search for and open.
+                     If None, uses whatever project is currently open.
+        """
         if not self.browser.page:
             if not await self.browser.connect():
                 return False
 
-        # Navigate first so is_logged_in can check the page URL
-        await self.nav.to_studio()
+        # Only navigate to Studio if not already there
+        current_url = self.browser.page.url if self.browser.page else ""
+        if "suno.com/studio" not in current_url:
+            await self.nav.to_studio()
+        # Wait for project to fully load (Studio can be slow)
+        await asyncio.sleep(5)
         await self.modal.dismiss_all()
 
         login = await self.nav.is_logged_in()
@@ -116,6 +125,16 @@ class MasteringAgent:
             console.print(f"[yellow]Not logged in: {login.message}[/yellow]")
             console.print("Please run 'suno login' first")
             return False
+
+        # Open a specific project if requested
+        if project:
+            console.print(f"[bold]Opening project: {project}[/bold]")
+            r = await self.studio.open_project(project)
+            if not r.success:
+                console.print(f"[red]{r.message}[/red]")
+                return False
+            console.print(f"[green]✓[/green] {r.message}")
+            await self.modal.dismiss_all()
 
         return True
 

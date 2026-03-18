@@ -12,23 +12,40 @@ class StudioSkill(Skill):
         Args:
             track_index: 0-based track index (0=first track, 1=second, etc.)
 
-        Track layout (calibrated Feb 28 2026):
+        Track layout (calibrated Mar 2026):
         - Track controls area: x=108-310, track 1 starts at y≈140
         - Timeline/waveform area: x=316+, each track is ~90px tall
-        - First track waveform center: y≈170, second: y≈260, third: y≈350
+        - First track waveform center: y≈200, second: y≈290, third: y≈380
         """
-        # Each track is approximately 90px tall, starting at y≈140
-        base_y = 170
-        track_height = 90
-        y = base_y + track_index * track_height
+        # Dynamically find the Y position of each track's number button,
+        # then click on the clip label area at that Y coordinate.
+        track_positions = await self.browser.evaluate("""() => {
+            const positions = [];
+            document.querySelectorAll('button').forEach(btn => {
+                const text = btn.textContent.trim();
+                const r = btn.getBoundingClientRect();
+                if (/^\\d+$/.test(text) && r.x < 600 && r.y > 50 && r.y < 1000 && r.width < 40 && r.height < 40) {
+                    positions.push({ num: parseInt(text), y: Math.round(r.y) });
+                }
+            });
+            positions.sort((a, b) => a.num - b.num);
+            return positions;
+        }""") or []
 
-        # Click in the waveform/timeline area (x > 316 where canvases are)
+        if track_index >= len(track_positions):
+            return SkillResult(success=False,
+                               message=f"Track {track_index + 1} not found ({len(track_positions)} tracks visible)")
+
+        # Click on the clip label at the track's Y position (label is at the top of each track row)
+        y = track_positions[track_index]['y'] + 5
+
         for x in [500, 600, 700]:
-            await self.click_at(x, y)
-            await self.wait(1)
+            await self.page.mouse.click(x, y)
+            await self.wait(0.8)
 
             text = await self.get_right_panel_text()
-            if 'Clip' in text and 'Track' in text:
+            if any(kw in text for kw in ['Clip Settings', 'Clip Volume', 'Transpose',
+                                          'Tempo', 'Extract', 'Stems', 'Remix']):
                 return SkillResult(success=True, message=f"Selected clip on track {track_index + 1}")
 
         return SkillResult(success=False, message="Could not select clip")
@@ -85,6 +102,112 @@ class StudioSkill(Skill):
             pass
 
         return SkillResult(success=True, message="Dragged clip to timeline")
+
+    async def open_project(self, search_query: str) -> SkillResult:
+        """Open a Studio project by searching the library.
+
+        Clicks Open Library, searches for the query, right-clicks the first
+        matching result with 'Stems' badge, and selects 'Open in Studio'.
+        Falls back to first result if no Stems match found.
+
+        Args:
+            search_query: Song name to search for (e.g. "Golden Hour")
+        """
+        # Dismiss any welcome modals first
+        try:
+            close = self.page.locator('[aria-label="close"], [aria-label="Close"]').first
+            await close.click(timeout=3000)
+            await self.wait(1)
+        except Exception:
+            pass
+
+        # Click Open Library button at the bottom (or the library icon in the sidebar)
+        if not await self.click_button("Open Library"):
+            # Try clicking the waveform icon (library) in the left sidebar
+            try:
+                await self.page.locator('a[href="/me"], text=Library').first.click(timeout=3000)
+                await self.wait(2)
+            except Exception:
+                # Last resort: use the sidebar waveform icon or bottom bar
+                try:
+                    await self.page.locator('text=Open Library').first.click(timeout=3000)
+                except Exception:
+                    return SkillResult(success=False, message="Open Library button not found")
+        await self.wait(2)
+
+        # Click the search icon and type the query
+        search_input = await self.page.query_selector('input[placeholder*="Search"], input[type="text"]')
+        if not search_input:
+            # Try clicking the magnifying glass icon area
+            await self.click_at(487, 86)
+            await self.wait(0.5)
+            search_input = await self.page.query_selector('input[placeholder*="Search"], input[type="text"]')
+
+        if not search_input:
+            return SkillResult(success=False, message="Search input not found")
+
+        await search_input.fill(search_query)
+        await self.wait(2)
+
+        # Right-click the first matching result (prefer one with Stems badge)
+        safe_query = search_query.replace("'", "\\'")
+        result = await self.browser.evaluate(f"""(() => {{
+            const query = '{safe_query}';
+            const items = document.querySelectorAll('*');
+            let stemTarget = null;
+            let anyTarget = null;
+            for (const el of items) {{
+                const text = el.textContent || '';
+                if (text.includes(query) && text.length < 300) {{
+                    const rect = el.getBoundingClientRect();
+                    if (rect.y > 130 && rect.y < 800 && rect.height > 30 && rect.height < 120) {{
+                        const pos = {{ x: rect.x + rect.width/2, y: rect.y + rect.height/2 }};
+                        if (!anyTarget) anyTarget = pos;
+                        if (text.includes('Stems') && !stemTarget) stemTarget = pos;
+                    }}
+                }}
+            }}
+            const target = stemTarget || anyTarget;
+            if (!target) return null;
+            document.elementFromPoint(target.x, target.y)?.dispatchEvent(
+                new MouseEvent('contextmenu', {{ bubbles: true, cancelable: true,
+                    clientX: target.x, clientY: target.y, button: 2, view: window }})
+            );
+            return target;
+        }})()""")
+
+        if not result:
+            return SkillResult(success=False, message=f"No results for '{search_query}'")
+
+        await self.wait(1)
+
+        # Hover over Remix/Edit to reveal submenu using Playwright hover
+        try:
+            remix_edit = self.page.locator("text=Remix/Edit").first
+            await remix_edit.hover(timeout=5000)
+            await self.wait(1)
+        except Exception:
+            return SkillResult(success=False, message="Remix/Edit menu not found")
+
+        # Click "Open in Studio" from the submenu
+        try:
+            await self.page.locator("text=Open in Studio").first.click(timeout=5000)
+        except Exception:
+            return SkillResult(success=False, message="'Open in Studio' option not found")
+
+        # Wait for project to load (Studio loading animation takes a while)
+        await self.wait(8)
+
+        # Dismiss any welcome modals that appear
+        try:
+            close_btn = self.page.locator('[aria-label="close"], [aria-label="Close"]').first
+            await close_btn.click(timeout=3000)
+            await self.wait(1)
+        except Exception:
+            pass
+
+        title = await self.page.title()
+        return SkillResult(success=True, message=f"Opened project: {title}", data=title)
 
     async def export_full_song(self) -> SkillResult:
         """Export the full song as WAV."""
@@ -152,7 +275,7 @@ class StudioSkill(Skill):
             document.querySelectorAll('button').forEach(btn => {
                 const text = btn.textContent.trim();
                 const r = btn.getBoundingClientRect();
-                if (/^\\d+$/.test(text) && r.x < 150 && r.x > 80 && r.y > 100 && r.y < 800 && r.width < 40) {
+                if (/^\\d+$/.test(text) && r.x < 600 && r.y > 100 && r.y < 1000 && r.width < 40 && r.height < 40) {
                     count = Math.max(count, parseInt(text));
                 }
             });

@@ -79,20 +79,22 @@ def login():
               help="Mastering profile")
 @click.option("--all", "master_all", is_flag=True, help="Master all tracks")
 @click.option("--export", "do_export", is_flag=True, help="Export after mastering")
-def master(track, profile, master_all, do_export):
+@click.option("--project", help="Project/song name to open (searches library)")
+def master(track, profile, master_all, do_export, project):
     """Apply EQ mastering to studio tracks.
 
     Examples:
         suno master --all --profile radio_ready
         suno master --track 1 --profile warm_vinyl
         suno master --all --profile bass_heavy --export
+        suno master --all --project "Golden Hour" --profile vocal_focus
     """
 
     async def run():
         browser = BrowserController()
         agent = MasteringAgent(browser)
 
-        if not await agent.initialize():
+        if not await agent.initialize(project=project):
             await agent.cleanup()
             return
 

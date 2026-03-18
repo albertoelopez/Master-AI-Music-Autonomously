@@ -6,6 +6,35 @@ from .base import Skill, SkillResult, console
 class StudioSkill(Skill):
     """Core Studio operations: clip selection, tab switching, export."""
 
+    async def _get_track_positions(self) -> list:
+        """Get Y positions of track number buttons.
+
+        Identifies track numbers by finding digit-only buttons that have
+        a 'No Input' dropdown within ~60px vertically below them (same track row).
+        """
+        return await self.browser.evaluate("""() => {
+            const allBtns = [...document.querySelectorAll('button')];
+            // 'No Input' dropdowns mark real track rows
+            const noInputYs = allBtns
+                .filter(b => b.textContent.trim().startsWith('No Input'))
+                .map(b => b.getBoundingClientRect().y);
+            const positions = [];
+            allBtns.forEach(btn => {
+                const text = btn.textContent.trim();
+                const r = btn.getBoundingClientRect();
+                if (/^\\d+$/.test(text) && r.width < 40 && r.height < 40 && r.y > 50) {
+                    // A track number button should have a 'No Input' dropdown
+                    // 30-80px below it in the same track row
+                    const hasNoInput = noInputYs.some(niy => niy > r.y && niy - r.y < 80);
+                    if (hasNoInput) {
+                        positions.push({ num: parseInt(text), y: Math.round(r.y) });
+                    }
+                }
+            });
+            positions.sort((a, b) => a.num - b.num);
+            return positions;
+        }""") or []
+
     async def select_clip(self, track_index: int = 0) -> SkillResult:
         """Click a clip on the timeline to select it.
 
@@ -19,25 +48,54 @@ class StudioSkill(Skill):
         """
         # Dynamically find the Y position of each track's number button,
         # then click on the clip label area at that Y coordinate.
-        track_positions = await self.browser.evaluate("""() => {
-            const positions = [];
-            document.querySelectorAll('button').forEach(btn => {
-                const text = btn.textContent.trim();
-                const r = btn.getBoundingClientRect();
-                if (/^\\d+$/.test(text) && r.x < 600 && r.y > 50 && r.y < 1000 && r.width < 40 && r.height < 40) {
-                    positions.push({ num: parseInt(text), y: Math.round(r.y) });
-                }
-            });
-            positions.sort((a, b) => a.num - b.num);
-            return positions;
-        }""") or []
+        track_positions = await self._get_track_positions()
 
+        target_num = track_index + 1
+
+        # If the track isn't visible, scroll it into view by clicking its
+        # track number button (which Playwright can scroll to).
         if track_index >= len(track_positions):
-            return SkillResult(success=False,
-                               message=f"Track {track_index + 1} not found ({len(track_positions)} tracks visible)")
+            # Track not visible yet — try scrolling the track list container
+            scrolled = await self.browser.evaluate(f"""(() => {{
+                const btns = [...document.querySelectorAll('button')];
+                const target = btns.find(b => {{
+                    const t = b.textContent.trim();
+                    const r = b.getBoundingClientRect();
+                    return t === '{target_num}' && r.width < 40 && r.height < 40;
+                }});
+                if (target) {{
+                    target.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+                    return true;
+                }}
+                // Fallback: scroll the timeline container down
+                const containers = document.querySelectorAll('div');
+                for (const c of containers) {{
+                    const r = c.getBoundingClientRect();
+                    if (r.x > 100 && r.x < 600 && c.scrollHeight > c.clientHeight + 50) {{
+                        c.scrollTop += 300;
+                        return true;
+                    }}
+                }}
+                return false;
+            }})()""")
+            await self.wait(1)
 
-        # Click on the clip label at the track's Y position (label is at the top of each track row)
-        y = track_positions[track_index]['y'] + 5
+            # Re-detect track positions after scroll
+            track_positions = await self._get_track_positions()
+
+        # Find the target track in the (possibly updated) positions
+        target_pos = None
+        for tp in track_positions:
+            if tp['num'] == target_num:
+                target_pos = tp
+                break
+
+        if not target_pos:
+            return SkillResult(success=False,
+                               message=f"Track {target_num} not found ({len(track_positions)} tracks visible)")
+
+        # Click on the clip label at the track's Y position
+        y = target_pos['y'] + 5
 
         for x in [500, 600, 700]:
             await self.page.mouse.click(x, y)
@@ -46,9 +104,9 @@ class StudioSkill(Skill):
             text = await self.get_right_panel_text()
             if any(kw in text for kw in ['Clip Settings', 'Clip Volume', 'Transpose',
                                           'Tempo', 'Extract', 'Stems', 'Remix']):
-                return SkillResult(success=True, message=f"Selected clip on track {track_index + 1}")
+                return SkillResult(success=True, message=f"Selected clip on track {target_num}")
 
-        return SkillResult(success=False, message="Could not select clip")
+        return SkillResult(success=False, message=f"Could not select clip on track {target_num}")
 
     async def switch_to_clip_tab(self) -> SkillResult:
         """Switch to the Clip tab in the right panel."""
@@ -270,16 +328,7 @@ class StudioSkill(Skill):
 
         Track number buttons are at x≈106-128, y>100, with text "1", "2", etc.
         """
-        count = await self.browser.evaluate("""() => {
-            let count = 0;
-            document.querySelectorAll('button').forEach(btn => {
-                const text = btn.textContent.trim();
-                const r = btn.getBoundingClientRect();
-                if (/^\\d+$/.test(text) && r.x < 600 && r.y > 100 && r.y < 1000 && r.width < 40 && r.height < 40) {
-                    count = Math.max(count, parseInt(text));
-                }
-            });
-            return count;
-        }""") or 0
+        positions = await self._get_track_positions()
+        count = max((p['num'] for p in positions), default=0)
 
         return SkillResult(success=True, message=f"{count} tracks", data=count)
